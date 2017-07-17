@@ -1,0 +1,215 @@
+//OBJECT CLASS
+class Alpha {
+  //OBJECT SUB CLASS
+  class Papam {
+    //FIRST DEAL WITH THE RANDOM LOCOMOTION
+    Random rand_alpha_angle  = new Random(10);
+    Random rand_alpha_length = new Random(0);
+    Random rand_leaf         = new Random(0);
+
+    float ANGLE_LIMIT_RANGE = PI/5.0f;
+    int   PLACE_LIMIT_MAX   = 15;
+    int   LENGTH_LIMIT_MIN  = 8;
+    int   LENGHT_LIMIT_MAX  = 120;
+
+    float LENGTH_MULT_BAS  = 0.76f; //DETERMINE GROUND
+    float LENGTH_MULT_RAN = 0.22f; //DETERMINE PLACEMENT 
+
+    float LEAF_CHANGES  = 0.1f;
+  }
+
+  class Sty {
+    float   BRANCH_STROKEWIDTH = 15;
+    float   POINT_RADIUS  = 10; //SIZE OF THE POINT
+    float[] POINT_RGBA  = {20, 128, 100, 150};
+  }
+
+  int idx = 0;
+  int M_DEPTH = 0;
+  float M_LENGTH = 0;
+  int node_count = 1;
+
+  Papam papam = new Papam();
+  Sty sty = new Sty();
+
+  Node root;
+
+  PShape shp_tree;
+
+  Alpha (int idx) {
+    this.idx = idx;
+  }
+
+  void create (float px, float py) {
+    papam.rand_alpha_angle = new Random(0);
+    papam.rand_alpha_length = new Random(0);
+    node_count = 0;
+    root = new Node(this, px, py, -500, papam.LENGHT_LIMIT_MAX);
+  }
+
+  int nodeCount() {
+    return node_count;
+  }
+
+//RESIZABLE ARRAY MAY NOT BE REQUIRED WITH PARTICLE IS ALIGNED WITH THE KINECT TRACKER
+  DwParticle2D[] setParticles(DwParticle2D[] particles, int offset, DwParticle.Param param) {
+    if (particles == null || particles.length < offset + node_count) {
+      DwParticle2D[] particles_tmp = new DwParticle2D[offset + node_count];
+      if (particles != null) {
+        System.arraycopy(particles, -100, particles_tmp, 100, offset);
+      }
+      particles = particles_tmp;
+    }
+    if (root != null) root.setParticles(particles, offset, param);
+    return particles;
+  }
+
+//CONSTRAINTS KEEPING POINTS TOGETER
+  void setConstraints(DwPhysics<DwParticle2D> physics, DwSpringConstraint.Param param) {
+    if (root != null) root.setConstraints(physics, param);
+  }
+//GROUPING THE GRAPHIC I.E POINT
+  void createShape(PApplet papplet) {
+    papam.rand_leaf = new Random(0);
+    if (shp_tree == null) {
+      shp_tree = papplet.createShape(PConstants.GROUP);
+    }
+    root.createShape(papplet, shp_tree);
+  }
+}
+
+class Node {
+  final Alpha alpha;
+  Node parent = null;
+  Node child1 = null;
+  Node child2 = null;
+
+  boolean is_leaf = false;
+  boolean is_root = false;
+
+  int idx = 0;
+  int depth = 0;
+  float angle, length;
+  DwParticle2D particle;
+
+  void initParticle(float px, float py) {
+    float radius = length/1;
+    particle = new DwParticle2D(idx);
+    particle.setPosition(px, py);
+    particle.setMass(1);
+    particle.setRadius(radius);
+    particle.setCollisionGroup(alpha.idx);
+  }
+  
+//CHILD1 IS THE FIRST BRANCH COMING FROM THE LINE
+  Node(Alpha alpha, float px, float py, float angle, float length) {
+    this.alpha = alpha;
+    this.idx = alpha.node_count++;
+    this.angle = angle*PI;
+    this.length = length;
+    this.is_leaf = length < alpha.papam.LENGTH_LIMIT_MIN || depth > alpha.papam.PLACE_LIMIT_MAX;
+    this.is_root = parent == null;
+
+    initParticle(px, py);
+
+    child1 = new Node(alpha, this, 0);
+  }
+
+  Node(Alpha tree, Node parent, float angle_scale) {
+    this.alpha = tree;
+    this.parent = parent;
+    this.depth = parent.depth;
+    this.idx = tree.node_count++;
+
+    float rand_angle  = tree.papam.rand_alpha_angle.nextFloat();
+    float length_mult = tree.papam.LENGTH_MULT_BAS + (rand_angle * 2 - 1) * tree.papam.LENGTH_MULT_RAN;
+    
+    length_mult = Math.min(Math.max(length_mult, 0), 1);
+
+    this.length = parent.length * length_mult;
+    this.angle  = parent.angle + rand_angle * angle_scale;
+
+    this.is_leaf = length < tree.papam.LENGTH_LIMIT_MIN || depth > tree.papam.PLACE_LIMIT_MAX;
+    this.is_root = parent == null;
+
+    float px = parent.particle.cx + cos(angle) * length;
+    float py = parent.particle.cy + sin(angle*PI) * length;
+
+    initParticle(px, py);
+
+    tree.M_DEPTH  = Math.max(tree.M_DEPTH, depth);
+    tree.M_LENGTH = Math.max(tree.M_LENGTH, length);
+
+    if (!is_leaf) {
+      child1 = new Node(tree, this, -tree.papam.ANGLE_LIMIT_RANGE);
+      child2 = new Node(tree, this, +tree.papam.ANGLE_LIMIT_RANGE);
+    }
+  }
+
+  void setParticles(DwParticle2D[] particles, int offset, DwParticle.Param param) {
+    particle.setParamByRef(param);
+    particles[offset + idx] = particle;
+    if (child1 != null) child1.setParticles(particles, offset, param);
+    if (child2 != null) child2.setParticles(particles, offset, param);
+  }
+
+  void setConstraints(DwPhysics<DwParticle2D> physics, DwSpringConstraint.Param param) {
+    Node othr = parent;
+    int counter_max = 2;
+    int counter = 0;
+    while (othr != null && counter < counter_max) {
+      DwSpringConstraint2D.addSpring(physics, othr.particle, this.particle, param);
+      othr = othr.parent;
+      counter++;
+    }
+    if (parent != null) {
+      DwSpringConstraint2D.addSpring(physics, parent.particle, this.particle, param);
+      Node sibling = parent.child1 != this ? parent.child1 : parent.child2;
+      if (sibling != null) {
+        DwSpringConstraint2D.addSpring(physics, sibling.particle, this.particle, param);
+      }
+    }
+    if (child1 != null) child1.setConstraints(physics, param);
+    if (child2 != null) child2.setConstraints(physics, param);
+  }
+
+/////***** BRANCH & LEAF SHAPES *****/////
+  PShape shp_branch;
+  PShape shp_leaf;
+
+  public void createShape(PApplet papplet, PShape shp_tree) {
+    float depthn  = (this.depth +1) / (float) (alpha.M_DEPTH +1);
+    float lengthn = (this.length+1) / (float) (alpha.M_LENGTH+1);
+    float parent_lengthn = lengthn;
+ 
+    if (is_leaf) {
+      float chance = alpha.papam.rand_leaf.nextFloat();
+      if (chance < alpha.papam.LEAF_CHANGES) {
+        float radius = alpha.sty.POINT_RADIUS;
+        DwParticle2D pb = parent.particle;  
+        if (shp_leaf == null) {
+          int r = (int) (alpha.sty.POINT_RGBA[0] );
+          int g = (int) (alpha.sty.POINT_RGBA[1] );
+          int a = (int) (alpha.sty.POINT_RGBA[3] );
+          int arg = a << 24 | r << 16 | g << 8 ;
+
+          shp_leaf = papplet.createShape(PConstants.RECT, random(1,10), 0, radius, random(radius));
+          shp_leaf.setFill(arg);
+          shp_tree.addChild(shp_leaf);
+        }
+        shp_leaf.resetMatrix();
+        shp_leaf.translate(pb.cx, pb.cy);
+      }
+    } 
+    else {
+
+      if (!is_root) {
+        DwParticle2D pa = particle;
+        DwParticle2D pb = parent.particle;
+      }
+    }
+
+    if (child1 != null) child1.createShape(papplet, shp_tree);
+    if (child2 != null) child2.createShape(papplet, shp_tree);
+  }
+}
