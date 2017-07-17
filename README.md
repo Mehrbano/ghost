@@ -1,5 +1,4 @@
 # ghost
-"existence without existence"
 
 /**
  * PixelFlow http://thomasdiewald.com/blog/
