@@ -1,0 +1,156 @@
+/**
+ * 
+ * PixelFlow http://thomasdiewald.com/blog/
+ * https://www.tutorialspoint.com/java/util/java_util_arraylist.htm
+ * http://thomasdiewald.com/processing/libraries/pixelflow/reference/index.html?help-doc.html
+ * 
+ **/
+// java.util.ArrayList class provides resizable-array and implements the List interface
+import java.util.ArrayList;
+import java.util.Random;
+//PIXELFLOW
+import com.thomasdiewald.pixelflow.java.DwPixelFlow;
+import com.thomasdiewald.pixelflow.java.imageprocessing.filter.DwFilter;
+import com.thomasdiewald.pixelflow.java.softbodydynamics.DwPhysics;
+import com.thomasdiewald.pixelflow.java.softbodydynamics.constraint.DwSpringConstraint;
+import com.thomasdiewald.pixelflow.java.softbodydynamics.constraint.DwSpringConstraint2D;
+import com.thomasdiewald.pixelflow.java.softbodydynamics.particle.DwParticle;
+import com.thomasdiewald.pixelflow.java.softbodydynamics.particle.DwParticle2D;
+//JAVA
+import processing.core.PApplet;
+import processing.core.PConstants;
+import processing.core.PShape;
+import processing.opengl.PGraphics2D;
+//KINECT
+//import org.openkinect.freenect.*;
+//import org.openkinect.processing.*;
+//////////*****//////////
+
+//SIZE
+int viewport_w = 1080;//screen size
+int viewport_h = 720; //screen size
+int viewport_x = 100; //file opening location
+int viewport_y = 0;   //file opening location
+
+// SUBJECT
+Alpha alpha1;
+
+// PARAMETERS
+DwPhysics.Param          param_physics      = new DwPhysics.Param();
+DwParticle.Param         param_particles    = new DwParticle.Param();
+DwSpringConstraint.Param param_constraints  = new DwSpringConstraint.Param();
+
+// PHYSICS
+DwPhysics<DwParticle2D> physics;
+
+// LISTED PARTICLES
+DwParticle2D[] particles;
+
+// RENDER TARGET
+PGraphics2D pg_render;
+PGraphics2D pg_bloom;
+
+// PIXEL FLOW
+DwPixelFlow context;
+/*
+//KINECT
+Kinect kinect;
+// DEPTH IMAGE
+PImage depthImg;
+// READING PIXELS
+int minDepth =  60;
+int maxDepth = 860;
+// KINECT ANGLE
+float angle;*/
+
+public void settings() {
+  size(viewport_w, viewport_h, P2D);
+  smooth(8);
+}
+
+public void setup() {
+  surface.setLocation(viewport_x, viewport_y);
+
+ /* kinect = new Kinect(this);
+  kinect.initDepth();
+  angle = kinect.getTilt();
+  // Blank image
+  depthImg = new PImage(kinect.width, kinect.height);
+  */
+  
+  // main library context
+  context = new DwPixelFlow(this);
+
+  //*** ALPHA1 SETUP
+  int alpha_idx = 0;
+  alpha1 = new Alpha(alpha_idx++);
+  //LINES
+  alpha1.papam.LENGTH_MULT_BAS = 0.76f; //
+  //LINES STROKE
+  alpha1.sty.BRANCH_STROKEWIDTH = 2;
+  //POINTS COLOR
+  alpha1.papam.ANGLE_LIMIT_RANGE = PI/2;
+  alpha1.sty.POINT_RGBA = new float[]{25, 128, 0, 200};
+  //OBJECT POSITION
+  alpha1.create(width/2, random(-320, 320));
+  // PARTICLES
+  int particles_offset = 0;
+
+  particles = alpha1.setParticles(particles, particles_offset, param_particles);
+  particles_offset += alpha1.node_count;
+
+  // physics
+  param_physics.GRAVITY = new float[]{ mouseX, mouseY }; //{ 0, -1.08f };
+  param_physics.bounds  = new float[]{ 0, 0, width, height };
+
+  physics = new DwPhysics<DwParticle2D>(param_physics);
+  physics.setParticles(particles, particles.length);
+
+  alpha1.setConstraints(physics, param_constraints);
+  alpha1.root.particle.enable(false, false, false);
+
+  // render targets
+  pg_bloom = (PGraphics2D) createGraphics(width, height, P2D);
+  pg_bloom.smooth(8);
+
+  pg_render = (PGraphics2D) createGraphics(width, height, P2D);
+  pg_render.smooth(8);
+
+  pg_render.beginDraw();
+  pg_render.background(255);
+  pg_render.endDraw();
+
+  frameRate(600);
+}
+
+public void draw() {
+  //background(255,255);
+  // RAW IMAGE
+  /*image(kinect.getDepthImage(), 0, 0);
+  // Threshold the depth image
+  int[] rawDepth = kinect.getRawDepth();
+  for (int i=0; i < rawDepth.length; i++) {
+    if (rawDepth[i] >= minDepth && rawDepth[i] <= maxDepth) {
+      depthImg.pixels[i] = color(255, 0, 0);
+    } else {
+      depthImg.pixels[i] = color(0, 0, 0, 200);
+    }
+  }*/
+  // Draw the thresholded image
+ /*  depthImg.updatePixels();
+     image(depthImg, kinect.width, 0);*/
+//PYSICS UPDATE ALSO DETERMINE SPEED
+  physics.update(1);
+//RENDER APPLICATION
+  alpha1.createShape(this);
+  pg_render.beginDraw();
+  pg_render.background(0);
+  pg_render.shape(alpha1.shp_tree);
+  pg_render.endDraw();
+//FILTER APPLICATION
+  DwFilter filter = DwFilter.get(context);
+  filter.bloom.param.mult   = 10.0f; //BRIGHTNESS & COVERED RADIUS
+  filter.bloom.apply(pg_render, pg_bloom, pg_render);
+//RENDERED IMAGE PLACEMENT
+  image (pg_render, 0, 0);
+}
